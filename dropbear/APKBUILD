@@ -3,14 +3,14 @@
 # Contributor: Dermot Bradley <dermot_bradley@yahoo.com>
 # Maintainer: Natanael Copa <ncopa@alpinelinux.org>
 pkgname=dropbear
-pkgver=2020.81
-pkgrel=1
+pkgver=2024.86
+pkgrel=0
 pkgdesc="small SSH 2 client/server designed for small memory environments"
 url="https://matt.ucc.asn.au/dropbear/dropbear.html"
 arch="all"
 license="MIT"
 options="!check"
-makedepends="zlib-dev linux-headers"
+makedepends="zlib-dev linux-headers utmps-dev utmps-static autoconf automake"
 subpackages="$pkgname-doc
 	$pkgname-openrc
 	$pkgname-convert:_convert
@@ -21,12 +21,16 @@ subpackages="$pkgname-doc
 source="https://matt.ucc.asn.au/dropbear/releases/dropbear-$pkgver.tar.bz2
 	dropbear.initd
 	dropbear.confd
-	dropbear-0.53.1-static_build_fix.patch
 	dropbear-options_sftp-server_path.patch
+	dropbear-options_ssh_config.patch
+	dropbear-fix-utmp.patch
+	new-config.h-location.patch
 	unlock_disk
 	"
 
 # secfixes:
+#   2022.83-r4:
+#     - CVE-2023-48795
 #   2020.79-r0:
 #     - CVE-2018-20685
 #   2018.76-r2:
@@ -34,7 +38,14 @@ source="https://matt.ucc.asn.au/dropbear/releases/dropbear-$pkgver.tar.bz2
 
 _progs="dropbear dropbearkey dbclient dropbearconvert scp"
 
+prepare() {
+	default_prepare
+	autoreconf -fvi
+}
+
 build() {
+	CFLAGS="$CFLAGS $(pkg-config --cflags --static utmps)" \
+	LIBS="$LDLIBS $(pkg-config --libs --static utmps)" \
 	./configure \
 		--build=$CBUILD \
 		--host=$CHOST \
@@ -43,7 +54,9 @@ build() {
 		--mandir=/usr/share/man \
 		--infodir=/usr/share/info \
 		--localstatedir=/var \
+		--disable-utmp \
 		--disable-wtmp \
+		--disable-pututline \
 		--disable-lastlog
 	make PROGRAMS="$_progs"
 }
@@ -51,6 +64,7 @@ build() {
 package() {
 	make PROGRAMS="$_progs" DESTDIR="$pkgdir" install
 
+	install -dm755 "$pkgdir"/etc/dropbear
 	install -D -m755 "$srcdir"/dropbear.initd \
 		"$pkgdir"/etc/init.d/dropbear
 	install -D -m644 "$srcdir"/dropbear.confd \
@@ -60,29 +74,30 @@ package() {
 _convert() {
 	pkgdesc="$pkgname dropbearconvert command"
 	depends=""
-	mkdir -p "$subpkgdir"/usr/bin
-	mv "$pkgdir"/usr/bin/dropbearconvert "$subpkgdir"/usr/bin/
+
+	amove usr/bin/dropbearconvert
 }
 
 _dbclient() {
 	pkgdesc="$pkgname dbclient command"
 	depends=""
-	mkdir -p "$subpkgdir"/usr/bin
-	mv "$pkgdir"/usr/bin/dbclient "$subpkgdir"/usr/bin/
+
+	amove usr/bin/dbclient
 }
 
 _scp() {
 	pkgdesc="$pkgname scp support"
-	depends="!openssh-client"
-	mkdir -p "$subpkgdir"/usr/bin
-	mv "$pkgdir"/usr/bin/scp "$subpkgdir"/usr/bin/
+	depends="$pkgname-dbclient !openssh-client"
+
+	amove usr/bin/scp
 }
 
 _ssh() {
 	pkgdesc="$pkgname ssh command (compatibility symlink for dbclient)"
-	depends="dropbear-dbclient !openssh-client"
+	depends="$pkgname-dbclient !openssh-client"
+
 	mkdir -p "$subpkgdir"/usr/bin
-	ln -s /usr/bin/dbclient "$subpkgdir"/usr/bin/ssh
+	ln -s dbclient "$subpkgdir"/usr/bin/ssh
 }
 
 _unlockdisk() {
@@ -94,10 +109,12 @@ _unlockdisk() {
 }
 
 sha512sums="
-2fa9d4d7dcb1c81281f5e47c8a99b7300eb46b3bb605daaec956404eae9124879a8bbbef521dea6da8b3643f3dc6f7f5005e265bfcaba97e89812f5642c294da  dropbear-2020.81.tar.bz2
-9c55ab3d8b61955cde1ccc1b8acbd3d2ef123feb9489e92737304c35315d07b7f85fad8a12ac7b0ec2c1dcee3d76b8bc4aa18518f4ddd963917805db33e48826  dropbear.initd
+6be3d2efd79e49e1f9fe13654c26b9c14d1504c9543720e59600f6d689aafae7365b4a0bbfa309f7bf692995672adbbd9e660b2c907ea3d68d9f71023d05f54e  dropbear-2024.86.tar.bz2
+55af2b9ece9845f30e07f707474c81d78921b17abfe614669fcefa600868d4ecef007a1e2276b74db8675ba5562c78397da6ae8de8717a2ca9c425384dc519d5  dropbear.initd
 83f2c1eaf7687917a4b2bae7d599d4378c4bd64f9126ba42fc5d235f2b3c9a474d1b3168d70ed64bb4101cc251d30bc9ae20604da9b5d819fcd635ee4d0ebb0f  dropbear.confd
-413cef467db35ddc430a773af943ff650d51bdb6fb262dcabc625eb6c9f4170b5711998df5577dd05c60e21e0a9771bff022adc8273083b85a18f4d5659ffd50  dropbear-0.53.1-static_build_fix.patch
-9b078548c6850c9b45e9b68a8ebd746a4a0648607c8ad0cf4106f09f7a63768c83a3e4e4fbec38b665ae283503fd3cdd054775aa3c9afe02567be3e775aef50b  dropbear-options_sftp-server_path.patch
+0f2507826f0f28d054d58c11d51359e493047a192e4511fb6476da637c7cd297f9db909c1450f95a5217d3da1b2ba12db198f60a380e5d8eecadd25816341cf8  dropbear-options_sftp-server_path.patch
+75d17e9a340c4ecb903b3ff29ffc2795ba2ce69f57def3c56d2e3427dd176902f7e31a53799007fcc551c8c477fcd02781e9347912ca39308c9b6769ed71e468  dropbear-options_ssh_config.patch
+9216e77107a5a18bbe1305d8183926153571eddc43592b8ac4439977ec042666ff36fc282c68347af8ef2bf4a2a65bb6b118c96f46618039203b9a795d77d9d5  dropbear-fix-utmp.patch
+18ddf7671b36448a668f3418fa407c8bbf01b100838e97de562b50de48d99a77c28fd3756d544cf8f4d820f68c675ba9c6dd63ef89b96c713e0cb8c5e694c22c  new-config.h-location.patch
 cec2cf9329d19a80a1df2252fdedf1dcf7a0aec2938f70882ba9c02d787abeaf8ec29600cd8c8bc30b40fd564e22ae0517f1dbb13592b3a49c8f86306b33a220  unlock_disk
 "

@@ -1,8 +1,8 @@
---- a/default_options.h
-+++ b/default_options.h
-@@ -255,7 +255,7 @@
-  * OpenSSH), set the path below and set DROPBEAR_SFTPSERVER. 
-  * The sftp-server program is not provided by Dropbear itself */
+--- a/src/default_options.h
++++ b/src/default_options.h
+@@ -320,7 +320,7 @@ group1 in Dropbear server too */
+  * Homedir is prepended if path begins with ~/
+  */
  #define DROPBEAR_SFTPSERVER 1
 -#define SFTPSERVER_PATH "/usr/libexec/sftp-server"
 +#define SFTPSERVER_PATH "/usr/lib/ssh/sftp-server"

@@ -1,22 +1,53 @@
-diff -Naur a/features.d/remote_unlock_luks.files b/features.d/remote_unlock_luks.files
---- a/features.d/remote_unlock_luks.files
+From: Nuc1eoN <nuc1eon@neonsys.org>
+Date: Sat, 28 Dec 2024 02:11:42 +0100
+Subject: [PATCH] Add remote ssh unlock
+
+Updated patch for mkinitfs 3.11.1.
+
+Original credits go to @dermotbradley
+
+---
+ Makefile                            |  1 +
+ features.d/remote_unlock_luks.files |  2 +
+ initramfs-init.in                   | 78 +++++++++++++++++++++++++++--
+ 3 files changed, 77 insertions(+), 4 deletions(-)
+ create mode 100644 features.d/remote_unlock_luks.files
+
+diff --git a/Makefile b/Makefile
+index f30d76f..208d362 100644
+--- a/Makefile
++++ b/Makefile
+@@ -45,6 +45,7 @@ CONF_FILES	:= mkinitfs.conf \
+ 		features.d/raid.files \
+ 		features.d/raid.modules \
+ 		features.d/reiserfs.modules \
++		features.d/remote_unlock_luks.files \
+ 		features.d/scsi.modules \
+ 		features.d/squashfs.modules \
+ 		features.d/ubifs.modules \
+diff --git a/features.d/remote_unlock_luks.files b/features.d/remote_unlock_luks.files
+new file mode 100644
+index 0000000..5df4973
+--- /dev/null
 +++ b/features.d/remote_unlock_luks.files
 @@ -0,0 +1,2 @@
 +/usr/sbin/dropbear
 +/etc/dropbear/*
-diff -Naur a/initramfs-init.in b/initramfs-init.in
+\ No newline at end of file
+diff --git a/initramfs-init.in b/initramfs-init.in
+index 75db1aa..7ce4790 100755
 --- a/initramfs-init.in
 +++ b/initramfs-init.in
-@@ -191,7 +191,7 @@
+@@ -242,7 +242,7 @@ configure_ip() {
  	if [ "$autoconf" = "dhcp" ]; then
  		# automatic configuration
- 		if [ ! -e /usr/share/udhcpc/default.script ]; then
+ 		if [ ! -e "$ROOT"/usr/share/udhcpc/default.script ]; then
 -			echo "ERROR: DHCP requested but not present in initrd"
 +			echo "ERROR: DHCP requested but not present in initramfs"
  			return 1
  		fi
- 		ebegin "Obtaining IP via DHCP ($device)"
-@@ -250,6 +250,63 @@
+ 		ebegin "Obtaining IP via DHCP ($iface)"
+@@ -308,6 +308,63 @@ find_boot_repositories() {
  	fi
  }
  
@@ -78,28 +109,19 @@ diff -Naur a/initramfs-init.in b/initramfs-init.in
 +}
 +
  setup_nbd() {
- 	modprobe -q nbd max_part=8 || return 1
+ 	$MOCK modprobe -q nbd max_part=8 || return 1
  	local IFS=, n=0
-@@ -343,11 +400,12 @@
- #  acpi_osi="!Windows 2006" xen-pciback.hide=(01:00.0)
- set -- $(cat /proc/cmdline)
- 
--myopts="alpine_dev autodetect autoraid chart cryptroot cryptdm cryptheader cryptoffset
--	cryptdiscards cryptkey debug_init dma init init_args keep_apk_new modules ovl_dev
--	pkgs quiet root_size root usbdelay ip alpine_repo apkovl alpine_start splash
--	blacklist overlaytmpfs rootfstype rootflags nbd resume s390x_net dasd ssh_key
--	BOOTIF zfcp"
-+myopts="alpine_dev alpine_repo alpine_start apkovl autodetect autoraid
-+	blacklist BOOTIF chart cryptdiscards cryptdm cryptheader cryptkey
-+	cryptoffset cryptroot dasd debug_init dma init init_args ip
-+	keep_apk_new modules nbd overlaytmpfs ovl_dev pkgs quiet
-+	remote_unlock_luks remote_unlock_luks_ssh_port resume root root_size
-+	rootflags rootfstype s390x_net splash ssh_key usbdelay zfcp"
- 
- for opt; do
- 	case "$opt" in
-@@ -487,6 +545,11 @@
- 	fi
+@@ -496,6 +553,8 @@ myopts="BOOTIF
+ 	overlaytmpfsflags
+ 	pkgs
+ 	quiet
++	remote_unlock_luks
++	remote_unlock_luks_ssh_port
+ 	resume
+ 	resume_offset
+ 	root
+@@ -665,6 +724,11 @@ if [ -n "$KOPT_wireguard" ]; then
+ 	setup_wireguard || echo "Failed to setup wireguard tunnel."
  fi
  
 +if [ "$KOPT_remote_unlock_luks" = "yes" ]; then
@@ -110,34 +132,25 @@ diff -Naur a/initramfs-init.in b/initramfs-init.in
  if [ -n "$KOPT_nbd" ]; then
  	# TODO: Might fail because nlplug-findfs hasn't plugged eth0 yet
  	configure_ip
-@@ -504,8 +567,17 @@
- 	fi
- 
+@@ -700,9 +764,15 @@ ln -s /proc/mounts "$ROOT"/etc/mtab
+ if [ -n "$KOPT_root" ]; then
+ 	# run nlplug-findfs before SINGLEMODE so we load keyboard drivers
  	ebegin "Mounting root"
--	nlplug-findfs $cryptopts -p /sbin/mdev ${KOPT_debug_init:+-d} \
+-	$MOCK nlplug-findfs $cryptopts -p /sbin/mdev ${KOPT_debug_init:+-d} \
+-		${KOPT_uevent_buf_size:+-U $KOPT_uevent_buf_size} \
 -		$KOPT_root
-+
-+	# Avoid trying to unlock encrypted rootfs again if it was already
-+	# unlocked using remote unlocking via SSH.
 +	if [ -z "$KOPT_remote_unlock_luks" ] || \
-+	   [ "$KOPT_remote_unlock_luks" != "yes" ] || \
-+	   [ -z "$KOPT_cryptdm" ] || \
-+	   [ ! -e /dev/mapper/"${KOPT_cryptdm}" ]; then
++		[ "$KOPT_remote_unlock_luks" != "yes" ] || \
++		[ -z "$KOPT_cryptdm" ] || \
++		[ ! -e /dev/mapper/"${KOPT_cryptdm}" ]; then
 +		# shellcheck disable=SC2086
-+		nlplug-findfs $cryptopts -p /sbin/mdev ${KOPT_debug_init:+-d} \
++		$MOCK nlplug-findfs $cryptopts -p /sbin/mdev ${KOPT_debug_init:+-d} \
++			${KOPT_uevent_buf_size:+-U $KOPT_uevent_buf_size} \
 +			$KOPT_root
 +	fi
  
- 	if echo "$KOPT_modules $rootfstype" | grep -qw btrfs; then
- 		/sbin/btrfs device scan >/dev/null || \
-diff -Naur a/Makefile b/Makefile
---- a/Makefile
-+++ b/Makefile
-@@ -43,6 +43,7 @@
- 		features.d/raid.files \
- 		features.d/raid.modules \
- 		features.d/reiserfs.modules \
-+		features.d/remote_unlock_luks.files \
- 		features.d/rpirtc.modules \
- 		features.d/scsi.modules \
- 		features.d/squashfs.modules \
+ 	if [ "$SINGLEMODE" = "yes" ]; then
+ 		echo "Entering single mode. Type 'exit' to continue booting."
+-- 
+2.47.1
+
