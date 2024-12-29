@@ -7,7 +7,7 @@ Configuration:
 
 - Ensure that "cryptsetup" and "remote_unlock_luks" both appear in the
   FEATURES line in the file /etc/mkinitfs/mkinitfs.conf. In case you are
-  going to use DHCP (rather than a static IP), add "dhcp" as well.
+  going to use DHCP (rather than a static IP), include "dhcp" as well.
 
 - Ensure that the file /etc/dropbear/authorized_keys contains the public SSH
   key(s) for each of the users that will be SSH-ing in to unlock the machine.
